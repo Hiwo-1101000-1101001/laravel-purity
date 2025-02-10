@@ -61,10 +61,18 @@ trait Filterable
             $params = request()->query('filters', []);
         }
 
+        $alias = $this->getTable();
+
         // Apply each filter to the query builder instance
 
         foreach ($params as $field => $value) {
-            app(Resolve::class)->apply($query, $field, $value);
+            if (strpos($field, '.') === false) {
+                $qualifiedField = $alias . '.' . $field;
+            } else {
+                $qualifiedField = $field;
+            }
+
+            app(Resolve::class)->apply($query, $qualifiedField, $value);
         }
 
         return $query;
@@ -184,17 +192,23 @@ trait Filterable
     private function getFilterFields(): array
     {
         $userDefinedFilterFields = [];
+        $alias = $this->getTable();
 
         foreach ($this->filterFields as $key => $value) {
             if (is_int($key)) {
                 if (Str::contains($value, ':')) {
-                    $userDefinedFilterFields[] = str($value)->before(':')->squish()->toString();
+                    $field = str($value)->before(':')->squish()->toString();
                 } else {
-                    $userDefinedFilterFields[] = $value;
+                    $field = $value;
                 }
             } else {
-                $userDefinedFilterFields[] = $key;
+                $field = $key;
             }
+            // Если поле не содержит точку, добавляем alias
+            if (!Str::contains($field, '.')) {
+                $field = $alias . '.' . $field;
+            }
+            $userDefinedFilterFields[] = $field;
         }
 
         return $userDefinedFilterFields;

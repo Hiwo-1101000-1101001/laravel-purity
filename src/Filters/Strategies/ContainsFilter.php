@@ -25,19 +25,19 @@ class ContainsFilter extends Filter
     {
         return function ($query) {
             $connection = DB::connection()->getDriverName();
-
             foreach ($this->values as $value) {
                 switch ($connection) {
                     case 'sqlite':
                     case 'mariadb':
                     case 'mysql':
-                        $query->whereRaw("`{$this->column}` LIKE ?", ["%{$value}%"]);
+                        $query->where($this->column, 'LIKE', "%{$value}%");
                         break;
                     case 'pgsql':
                         $query->where($this->column, 'ILIKE', "%{$value}%");
                         break;
                     case 'sqlsrv':
-                        $query->whereRaw("`{$this->column}` COLLATE Latin1_General_CI_AS LIKE ?", ["%{$value}%"]);
+                        $query->where($this->column, 'LIKE', "%{$value}%")
+                            ->collate('Latin1_General_CI_AS');
                         break;
                     default:
                         throw new RuntimeException("Unsupported database driver: {$connection}");
