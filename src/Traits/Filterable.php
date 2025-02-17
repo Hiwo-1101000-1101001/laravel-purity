@@ -152,12 +152,6 @@ trait Filterable
         return $this->userDefinedFilterFields = array_map(fn ($f) => $renamed[$f] ?? $f, $fields);
     }
 
-    private function getFilterFields(): array
-    {
-        $alias = $this->getTable();
-        return array_map(fn ($field) => Str::contains($field, '.') ? $field : "$alias.$field", $this->filterFields);
-    }
-
     /**
      * @return array<int, string>
      */
@@ -258,8 +252,14 @@ trait Filterable
         return $query;
     }
 
+    private function getFilterFields(): array
+    {
+        return $this->filterFields;
+    }
+
     public function getFilterRelations(): array
     {
         return $this->filterRelations;
     }
 }
+
