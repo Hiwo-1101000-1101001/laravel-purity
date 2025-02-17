@@ -3,6 +3,7 @@
 namespace Abbasudo\Purity\Filters\Strategies;
 
 use Abbasudo\Purity\Filters\Filter;
+use Abbasudo\Purity\Filters\FilterProcessor;
 use Abbasudo\Purity\Filters\Resolve;
 use Closure;
 
@@ -23,11 +24,11 @@ class AndFilter extends Filter
     public function apply(): Closure
     {
         return function ($query) {
-            foreach ($this->values as $value) {
-                $query->where(function ($query) use ($value) {
-                    foreach ($value as $key => $item) {
-                        app(Resolve::class)->apply($query, $key, $item);
-                    }
+            foreach ($this->values as $filterGroup) {
+                $query->where(function ($subQuery) use ($filterGroup) {
+                    $model = $subQuery->getModel();
+                    $processor = new FilterProcessor($model);
+                    $processor->apply($subQuery, $filterGroup);
                 });
             }
         };

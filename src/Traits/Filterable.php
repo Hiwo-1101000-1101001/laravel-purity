@@ -3,10 +3,10 @@
 namespace Abbasudo\Purity\Traits;
 
 use Abbasudo\Purity\Filters\FilterList;
+use Abbasudo\Purity\Filters\FilterProcessor;
 use Abbasudo\Purity\Filters\Resolve;
 use Exception;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 use ReflectionClass;
@@ -56,26 +56,28 @@ trait Filterable
     {
         $this->bootFilter();
 
-        if (!isset($params)) {
+        if ($params === null) {
             // Retrieve the filters from the request query
             $params = request()->query('filters', []);
         }
 
-        $alias = $this->getTable();
-
         // Apply each filter to the query builder instance
-
-        foreach ($params as $field => $value) {
-            if (strpos($field, '.') === false) {
-                $qualifiedField = $alias . '.' . $field;
-            } else {
-                $qualifiedField = $field;
-            }
-
-            app(Resolve::class)->apply($query, $qualifiedField, $value);
-        }
+        $query = (new FilterProcessor($this))->apply($query, $params);
 
         return $query;
+    }
+
+
+    private function isAllowedFilter(string $field): bool
+    {
+        $allowedOperators = app(FilterList::class)->keys();
+
+        if (in_array($field, $allowedOperators, true)) {
+            return true;
+        }
+
+        return (isset($this->filterFields) && in_array($field, $this->filterFields, true))
+            || (isset($this->filterRelations) && in_array($field, $this->filterRelations, true));
     }
 
     /**
@@ -85,15 +87,8 @@ trait Filterable
      */
     private function bootFilter(): void
     {
-        app()->singleton(FilterList::class, function () {
-            return (new FilterList())->only($this->getFilters());
-        });
-
-        app()->bind(Resolve::class, function () {
-            $resolver = $this->getFilterResolver();
-
-            return new $resolver(app(FilterList::class), $this);
-        });
+        app()->singleton(FilterList::class, fn () => (new FilterList())->only($this->getFilters()));
+        app()->bind(Resolve::class, fn () => new ($this->getFilterResolver())(app(FilterList::class), $this));
     }
 
     /**
@@ -101,7 +96,7 @@ trait Filterable
      */
     private function getFilters(): array
     {
-        return $this->filters ?? config('purity.filters');
+        return $this->filters ?? config('purity.filters', []);
     }
 
     /**
@@ -113,7 +108,6 @@ trait Filterable
     public function scopeFilterBy(Builder $query, array|string $filters): Builder
     {
         $this->filters = is_array($filters) ? $filters : array_slice(func_get_args(), 1);
-
         return $query;
     }
 
@@ -132,11 +126,9 @@ trait Filterable
      */
     public function availableFields(): array
     {
-        if (!isset($this->filterFields) && !isset($this->renamedFilterFields)) {
-            return $this->getDefaultFields();
-        }
-
-        return $this->getUserDefinedFilterFields();
+        return isset($this->filterFields) || isset($this->renamedFilterFields)
+            ? $this->getUserDefinedFilterFields()
+            : $this->getDefaultFields();
     }
 
     private function getDefaultFields(): array
@@ -155,63 +147,15 @@ trait Filterable
             return $this->userDefinedFilterFields;
         }
 
-        if (isset($this->renamedFilterFields, $this->filterFields)) {
-            $fields = $this->getFilterFields();
-            $filterFields = [];
-
-            foreach ($fields as $filterName) {
-                if ($columnName = array_search($filterName, $this->renamedFilterFields)) {
-                    $filterFields[$columnName] = $filterName;
-                } else {
-                    $filterFields[] = $filterName;
-                }
-            }
-
-            return $this->userDefinedFilterFields = $filterFields;
-        }
-
-        if (isset($this->renamedFilterFields)) {
-            $fields = $this->getDefaultFields();
-
-            $filterFields = [];
-
-            foreach ($fields as $filterName) {
-                if (array_key_exists($filterName, $this->renamedFilterFields)) {
-                    $filterFields[$filterName] = $this->renamedFilterFields[$filterName];
-                } else {
-                    $filterFields[] = $filterName;
-                }
-            }
-
-            return $this->userDefinedFilterFields = $filterFields;
-        }
-
-        return $this->userDefinedFilterFields = $this->getFilterFields();
+        $fields = $this->filterFields ?? [];
+        $renamed = $this->renamedFilterFields ?? [];
+        return $this->userDefinedFilterFields = array_map(fn ($f) => $renamed[$f] ?? $f, $fields);
     }
 
     private function getFilterFields(): array
     {
-        $userDefinedFilterFields = [];
         $alias = $this->getTable();
-
-        foreach ($this->filterFields as $key => $value) {
-            if (is_int($key)) {
-                if (Str::contains($value, ':')) {
-                    $field = str($value)->before(':')->squish()->toString();
-                } else {
-                    $field = $value;
-                }
-            } else {
-                $field = $key;
-            }
-            // Если поле не содержит точку, добавляем alias
-            if (!Str::contains($field, '.')) {
-                $field = $alias . '.' . $field;
-            }
-            $userDefinedFilterFields[] = $field;
-        }
-
-        return $userDefinedFilterFields;
+        return array_map(fn ($field) => Str::contains($field, '.') ? $field : "$alias.$field", $this->filterFields);
     }
 
     /**
@@ -219,23 +163,23 @@ trait Filterable
      */
     public function getRestrictedFilters(): array
     {
-        if (isset($this->sanitizedRestrictedFilters)) {
-            return $this->sanitizedRestrictedFilters;
-        }
+        return $this->sanitizedRestrictedFilters ??= $this->parseRestrictedFilters();
+    }
 
-        $restrictedFilters = [];
+    private function parseRestrictedFilters(): array
+    {
+        $filters = $this->restrictedFilters ?? [];
 
-        foreach ($this->restrictedFilters ?? $this->filterFields ?? [] as $key => $value) {
+        return collect($filters)->mapWithKeys(function ($value, $key) {
             if (is_int($key) && Str::contains($value, ':')) {
-                $tKey = str($value)->before(':')->squish()->toString();
-                $restrictedFilters[$tKey] = str($value)->after(':')->squish()->explode(',')->all();
-            }
-            if (is_string($key)) {
-                $restrictedFilters[$key] = Arr::wrap($value);
-            }
-        }
+                $field = Str::before($value, ':');
+                $values = explode(',', Str::after($value, ':'));
 
-        return $this->sanitizedRestrictedFilters = $restrictedFilters;
+                return [$field => $values];
+            }
+
+            return [$key => Arr::wrap($value)];
+        })->all();
     }
 
     /**
@@ -245,9 +189,7 @@ trait Filterable
      */
     public function getAvailableFiltersFor(string $field): array|null
     {
-        $this->getRestrictedFilters();
-
-        return Arr::get($this->sanitizedRestrictedFilters, $field);
+        return Arr::get($this->getRestrictedFilters(), $field);
     }
 
     /**
@@ -258,17 +200,12 @@ trait Filterable
     private function relations(): array
     {
         $methods = (new ReflectionClass(get_called_class()))->getMethods();
-
         return collect($methods)
-            ->filter(
-                fn ($method) => !empty($method->getReturnType()) &&
-                    str_contains(
-                        $method->getReturnType(),
-                        'Illuminate\Database\Eloquent\Relations'
-                    )
-            )
-            ->map(fn ($method) => $method->name)
-            ->values()->all();
+            ->filter(fn($method) => !empty($method->getReturnType()) &&
+                str_contains($method->getReturnType(), 'Illuminate\Database\Eloquent\Relations'))
+            ->map(fn($method) => $method->name)
+            ->values()
+            ->all();
     }
 
     /**
@@ -279,8 +216,21 @@ trait Filterable
      */
     public function scopeFilterFields(Builder $query, array|string $fields): Builder
     {
-        $this->filterFields = is_array($fields) ? $fields : array_slice(func_get_args(), 1);
+        $this->filterFields = Arr::wrap($fields);
+        return $query;
+    }
 
+    /**
+     * Задает фильтруемые связи.
+     *
+     * @param Builder    $query
+     * @param array|string $relations
+     *
+     * @return Builder
+     */
+    public function scopeFilterRelations(Builder $query, array|string $relations): Builder
+    {
+        $this->filterRelations = Arr::wrap($relations);
         return $query;
     }
 
@@ -293,7 +243,6 @@ trait Filterable
     public function scopeRestrictedFilters(Builder $query, array|string $restrictedFilters): Builder
     {
         $this->restrictedFilters = Arr::wrap($restrictedFilters);
-
         return $query;
     }
 
@@ -306,7 +255,11 @@ trait Filterable
     public function scopeRenamedFilterFields(Builder $query, array $renamedFilterFields): Builder
     {
         $this->renamedFilterFields = $renamedFilterFields;
-
         return $query;
+    }
+
+    public function getFilterRelations(): array
+    {
+        return $this->filterRelations;
     }
 }
