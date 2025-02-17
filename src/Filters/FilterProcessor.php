@@ -90,12 +90,12 @@ class FilterProcessor
 
     protected function isRelation(Model $model, string $relation): bool
     {
-        return property_exists($model, 'filterRelations') && in_array($relation, $model->filterRelations, true);
+        return method_exists($model, 'getFilterRelations') && in_array($relation, $model->getFilterRelations(), true);
     }
 
     protected function isField(Model $model, string $field): bool
     {
-        return property_exists($model, 'filterFields') && in_array($field, $model->filterFields, true);
+        return method_exists($model, 'getFilterFields') && in_array($field, $model->getFilterFields(), true);
     }
 
     protected function isAllowedRelation(Model $model, string $relation): bool
@@ -124,3 +124,4 @@ class FilterProcessor
         return $mapping;
     }
 }
+
