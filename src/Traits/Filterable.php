@@ -252,7 +252,7 @@ trait Filterable
         return $query;
     }
 
-    private function getFilterFields(): array
+    public function getFilterFields(): array
     {
         return $this->filterFields;
     }
