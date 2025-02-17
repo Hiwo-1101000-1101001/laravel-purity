@@ -63,7 +63,6 @@ trait Filterable
 
         // Apply each filter to the query builder instance
         $query = (new FilterProcessor($this))->apply($query, $params);
-
         return $query;
     }
 
@@ -254,7 +253,7 @@ trait Filterable
 
     public function getFilterFields(): array
     {
-        return array_map(fn($field) => $this->getTable() . '.' . $field, $this->getFilterFields());
+        return array_map(fn($field) => $this->getTable() . '.' . $field, $this->filterFields);
     }
 
     public function getFilterRelations(): array
@@ -262,4 +261,5 @@ trait Filterable
         return $this->filterRelations;
     }
 }
+
 

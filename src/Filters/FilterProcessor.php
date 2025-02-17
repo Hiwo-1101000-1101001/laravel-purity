@@ -95,7 +95,7 @@ class FilterProcessor
 
     protected function isField(Model $model, string $field): bool
     {
-        return method_exists($model, 'getFilterFields') && in_array($field, $model->getFilterFields(), true);
+        return method_exists($model, 'getFilterFields') && in_array($model->getTable() . '.' . $field, $model->getFilterFields(), true);
     }
 
     protected function isAllowedRelation(Model $model, string $relation): bool
@@ -124,4 +124,5 @@ class FilterProcessor
         return $mapping;
     }
 }
+
 
