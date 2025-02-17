@@ -254,7 +254,7 @@ trait Filterable
 
     public function getFilterFields(): array
     {
-        return $this->filterFields;
+        return array_map(fn($field) => $this->getTable() . '.' . $field, $this->getFilterFields());
     }
 
     public function getFilterRelations(): array
