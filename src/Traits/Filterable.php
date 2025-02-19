@@ -251,14 +251,22 @@ trait Filterable
         return $query;
     }
 
+    /**
+     * Getter get filter fields from model
+     * @return array
+     */
     public function getFilterFields(): array
     {
-        return array_map(fn($field) => $this->getTable() . '.' . $field, $this->filterFields);
+        return array_map(fn($field) => $this->getTable() . '.' . $field, $this->filterFields) ?? [];
     }
 
+    /**
+     * Getter get filter relations from model
+     * @return array
+     */
     public function getFilterRelations(): array
     {
-        return $this->filterRelations;
+        return $this->filterRelations ?? [];
     }
 }
 
